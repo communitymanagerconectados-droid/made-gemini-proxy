@@ -1,23 +1,19 @@
-/* Archivo: netlify/functions/made.js - CÓDIGO FINAL CORREGIDO */
+/* Archivo: netlify/functions/made.js - CÓDIGO FINAL VERSIÓN 3 */
 
-// Dependencia necesaria para hacer la llamada HTTP
 const fetch = require('node-fetch');
 
 // --- CONSTANTES GLOBALES ---
 
-// 🔒 La clave se lee de la variable de entorno de Netlify
 const API_KEY = process.env.GEMINI_API_KEY; 
 const API_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-// Encabezados para solucionar el error de CORS
 const CORS_HEADERS = {
-    "Access-Control-Allow-Origin": "*", // Permite el acceso desde cualquier origen (tu WordPress)
+    "Access-Control-Allow-Origin": "*", 
     "Access-Control-Allow-Headers": "Content-Type",
     "Content-Type": "application/json"
 };
 
 // --- INSTRUCCIONES DEL SISTEMA PARA MADE ---
-// Este es el rol avanzado y detallado que definiste
 const SYSTEM_INSTRUCTIONS = `
 Eres MADE 🛍️, una Asistente de Compras Virtual experta, amable y altamente empática. Tu misión es actuar como una personal shopper digital.
 Que sabes: Experta en tecnología 📱, ropa 👟, hogar 🛋️, cocina 🍳, y más.
@@ -32,14 +28,9 @@ exports.handler = async (event, context) => {
     
     // 1. Manejo de Peticiones 'preflight' (CORS)
     if (event.httpMethod === "OPTIONS") {
-        return {
-            statusCode: 204, // 204 No Content para preflight exitoso
-            headers: CORS_HEADERS,
-            body: '' 
-        };
+        return { statusCode: 204, headers: CORS_HEADERS, body: '' };
     }
 
-    // 2. Verificaciones iniciales
     if (event.httpMethod !== "POST") {
         return { statusCode: 405, headers: CORS_HEADERS, body: "Método no permitido. Usa POST." };
     }
@@ -55,17 +46,18 @@ exports.handler = async (event, context) => {
             return { statusCode: 400, headers: CORS_HEADERS, body: JSON.stringify({ error: "Falta el parámetro 'user_prompt'." }) };
         }
 
-        // 3. Construcción del cuerpo de la solicitud a Gemini (¡JSON VÁLIDO!)
+        // 3. Construcción del cuerpo de la solicitud a Gemini (¡FORMATO VÁLIDO!)
         const requestBody = {
-            // ✅ systemInstruction se envía correctamente a este nivel
-            systemInstruction: SYSTEM_INSTRUCTIONS, 
-            
             contents: [{
                 role: "user",
                 parts: [{text: userPrompt}]
-            }]
-            // El campo 'config' que causaba el error ya no está aquí
+            }],
+            // ✅ CORRECCIÓN FINAL: La instrucción va dentro de 'config'
+            config: { 
+                systemInstruction: SYSTEM_INSTRUCTIONS
+            }
         };
+
 
         // 4. Llamada a la API de Gemini
         const response = await fetch(`${API_ENDPOINT}?key=${API_KEY}`, {
@@ -77,7 +69,6 @@ exports.handler = async (event, context) => {
         const data = await response.json();
 
         if (!response.ok) {
-            // Manejo de errores de la API de Google
             const errorMessage = data.error ? data.error.message : "Error desconocido de Gemini.";
             return {
                 statusCode: response.status,
@@ -101,6 +92,6 @@ exports.handler = async (event, context) => {
             statusCode: 500, 
             headers: CORS_HEADERS, 
             body: JSON.stringify({ error: "Error interno del servidor (Proxy)." }) 
-        };
+        }
     }
-};
+}
