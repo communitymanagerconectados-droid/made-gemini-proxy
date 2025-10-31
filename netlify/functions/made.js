@@ -1,4 +1,4 @@
-/* Archivo: netlify/functions/made.js - CÓDIGO FINAL VERSIÓN 3 */
+/* Archivo: netlify/functions/made.js - CÓDIGO FINAL VERSIÓN 4 (FIX de CONFIG) */
 
 const fetch = require('node-fetch');
 
@@ -14,6 +14,7 @@ const CORS_HEADERS = {
 };
 
 // --- INSTRUCCIONES DEL SISTEMA PARA MADE ---
+// Se envían como parte del prompt para evitar el error de JSON
 const SYSTEM_INSTRUCTIONS = `
 Eres MADE 🛍️, una Asistente de Compras Virtual experta, amable y altamente empática. Tu misión es actuar como una personal shopper digital.
 Que sabes: Experta en tecnología 📱, ropa 👟, hogar 🛋️, cocina 🍳, y más.
@@ -46,16 +47,14 @@ exports.handler = async (event, context) => {
             return { statusCode: 400, headers: CORS_HEADERS, body: JSON.stringify({ error: "Falta el parámetro 'user_prompt'." }) };
         }
 
-        // 3. Construcción del cuerpo de la solicitud a Gemini (¡FORMATO VÁLIDO!)
+        // 3. Construcción del cuerpo de la solicitud a Gemini (SOLUCIÓN JSON/400)
         const requestBody = {
             contents: [{
                 role: "user",
-                parts: [{text: userPrompt}]
-            }],
-            // ✅ CORRECCIÓN FINAL: La instrucción va dentro de 'config'
-            config: { 
-                systemInstruction: SYSTEM_INSTRUCTIONS
-            }
+                // ✅ CONCATENACIÓN: La instrucción de sistema se adjunta al mensaje del usuario
+                // Esto bypassa el error de configuración JSON de la API.
+                parts: [{text: SYSTEM_INSTRUCTIONS + "\n\n" + "El cliente dice: " + userPrompt}]
+            }]
         };
 
 
