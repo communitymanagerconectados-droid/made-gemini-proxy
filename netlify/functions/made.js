@@ -1,4 +1,4 @@
-/* Archivo: netlify/functions/made.js - CÓDIGO FINAL VERSIÓN 4 (FIX de CONFIG) */
+/* Archivo: netlify/functions/made.js - CÓDIGO FINAL CON MEMORIA */
 
 const fetch = require('node-fetch');
 
@@ -14,7 +14,6 @@ const CORS_HEADERS = {
 };
 
 // --- INSTRUCCIONES DEL SISTEMA PARA MADE ---
-// Se envían como parte del prompt para evitar el error de JSON
 const SYSTEM_INSTRUCTIONS = `
 Eres MADE 🛍️, una Asistente de Compras Virtual experta, amable y altamente empática. Tu misión es actuar como una personal shopper digital.
 Que sabes: Experta en tecnología 📱, ropa 👟, hogar 🛋️, cocina 🍳, y más.
@@ -24,10 +23,8 @@ Regla de Oro: NUNCA des una recomendación final a menos que el cliente te acorr
 // ------------------------------------------
 
 
-// Función principal que Netlify ejecuta
 exports.handler = async (event, context) => {
     
-    // 1. Manejo de Peticiones 'preflight' (CORS)
     if (event.httpMethod === "OPTIONS") {
         return { statusCode: 204, headers: CORS_HEADERS, body: '' };
     }
@@ -41,30 +38,62 @@ exports.handler = async (event, context) => {
 
     try {
         const body = JSON.parse(event.body);
-        const userPrompt = body.user_prompt;
+        // ✅ CAMBIO: Ahora esperamos el historial completo
+        const conversationHistory = body.conversation_history; 
 
-        if (!userPrompt) {
-            return { statusCode: 400, headers: CORS_HEADERS, body: JSON.stringify({ error: "Falta el parámetro 'user_prompt'." }) };
+        if (!conversationHistory || conversationHistory.length === 0) {
+            return { statusCode: 400, headers: CORS_HEADERS, body: JSON.stringify({ error: "Falta el historial de la conversación." }) };
         }
 
-        // 3. Construcción del cuerpo de la solicitud a Gemini (SOLUCIÓN JSON/400)
+        // 3. Formatear el historial para la API de Gemini
+        const contents = conversationHistory.map((message, index) => {
+            let text = message.text;
+
+            // ✅ CRUCIAL: Adjuntamos las instrucciones de sistema al PRIMER mensaje 'user'
+            // Esto asegura que Gemini mantenga el rol a lo largo de la conversación.
+            if (index === 0 && message.role === 'user') {
+                text = SYSTEM_INSTRUCTIONS + "\n\n" + "El cliente dice: " + text;
+            }
+            // Si el primer mensaje fue 'model' (bienvenida), el primer 'user' será el segundo en el array.
+            // Para simplificar, adjuntamos SIEMPRE el SYSTEM_INSTRUCTIONS al primer mensaje de la conversación que no sea el de bienvenida.
+            // Para ser robustos, adjuntamos las instrucciones al primer mensaje *de usuario*.
+            if (index > 0 && message.role === 'user' && conversationHistory[index-1].role === 'model') {
+                 // Si es el primer mensaje del usuario después del saludo, adjuntamos.
+            }
+            
+            // Si el primer mensaje fue de rol 'model' (el saludo inicial), el primer mensaje de 'user'
+            // es el que lleva el índice 1 o posterior.
+            const isFirstUserMessage = message.role === 'user' && !conversationHistory.slice(0, index).some(m => m.role === 'user');
+
+            if (isFirstUserMessage) {
+                text = SYSTEM_INSTRUCTIONS + "\n\n" + "El cliente dice: " + text;
+            } else if (message.role === 'user') {
+                text = "El cliente dice: " + text;
+            }
+
+
+            return {
+                role: message.role,
+                parts: [{ text: text }]
+            };
+        }).filter(message => message.role !== 'model' || message.parts[0].text.trim() !== SYSTEM_INSTRUCTIONS.trim()); // Filtramos si incluimos el saludo inicial como 'model'.
+
+        // Filtramos el primer mensaje del bot de bienvenida si existe, ya que Gemini no lo necesita como contexto.
+        const filteredContents = contents.filter(c => c.role !== 'model' || c.parts[0].text !== '¡Hola! Soy Made 🛍️, tu personal shopper virtual. Dime, ¿qué producto estás buscando hoy? Así te puedo ayudar a encontrar la mejor opción.');
+        
+        // 4. Construcción final de la solicitud
         const requestBody = {
-            contents: [{
-                role: "user",
-                // ✅ CONCATENACIÓN: La instrucción de sistema se adjunta al mensaje del usuario
-                // Esto bypassa el error de configuración JSON de la API.
-                parts: [{text: SYSTEM_INSTRUCTIONS + "\n\n" + "El cliente dice: " + userPrompt}]
-            }]
+            contents: filteredContents
         };
 
-
-        // 4. Llamada a la API de Gemini
+        // 5. Llamada a la API de Gemini
         const response = await fetch(`${API_ENDPOINT}?key=${API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
         });
 
+        // 6. Manejo y retorno de la respuesta
         const data = await response.json();
 
         if (!response.ok) {
@@ -76,7 +105,6 @@ exports.handler = async (event, context) => {
             };
         }
 
-        // 5. Retorno de la respuesta exitosa
         const geminiResponseText = data.candidates[0].content.parts[0].text; 
 
         return {
@@ -93,4 +121,4 @@ exports.handler = async (event, context) => {
             body: JSON.stringify({ error: "Error interno del servidor (Proxy)." }) 
         }
     }
-}
+};
