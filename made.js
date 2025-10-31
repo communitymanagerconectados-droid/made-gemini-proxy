@@ -1,0 +1,9 @@
+{
+  "name": "made-gemini-proxy",
+  "version": "1.0.0",
+  "description": "Proxy seguro para la API de Gemini (Made)",
+  "main": "netlify/functions/made.js",
+  "dependencies": {
+    "node-fetch": "^2.6.1"
+  }
+}
