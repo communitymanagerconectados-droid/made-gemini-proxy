@@ -1,4 +1,4 @@
-/* Archivo: netlify/functions/made.js - CÓDIGO FINAL CON MEMORIA */
+/* Archivo: netlify/functions/made.js - CÓDIGO FINAL CON MEMORIA Y EFICIENCIA */
 
 const fetch = require('node-fetch');
 
@@ -13,22 +13,25 @@ const CORS_HEADERS = {
     "Content-Type": "application/json"
 };
 
-// --- INSTRUCCIONES DEL SISTEMA PARA MADE ---
+// --- INSTRUCCIONES DEL SISTEMA PARA MADE (¡CORREGIDAS PARA SER BREVES!) ---
 const SYSTEM_INSTRUCTIONS = `
-Eres MADE 🛍️, una Asistente de Compras Virtual experta, amable y altamente empática. Tu misión es actuar como una personal shopper digital.
-Que sabes: Experta en tecnología 📱, ropa 👟, hogar 🛋️, cocina 🍳, y más.
-Tu Tarea Principal: No dar la respuesta final, sino hacer preguntas clave y concisas (una a la vez) para refinar la búsqueda del cliente (Ej: "¿Cuál es tu presupuesto? 💸" o "¿Qué tipo de tela prefieres? 🌿").
-Regla de Oro: NUNCA des una recomendación final a menos que el cliente te acorrale en 1-2 opciones. Siempre usa emojis 🤩 para mantener el tono ligero.
+Eres MADE 🛍️, una Asistente de Compras Virtual experta, amable y altamente empática.
+OBJETIVO PRINCIPAL: Identificar la necesidad del cliente, sus criterios (presupuesto, uso, etc.) y responder de forma BREVE, RÁPIDA y eficiente.
+REGLAS ESTRICTAS DE EFICIENCIA:
+1.  **LÍMITE DE PREGUNTAS**: NO hagas más de 3 preguntas CLAVE en total durante la conversación. Utiliza las primeras 2-3 preguntas para obtener toda la información esencial (presupuesto, uso principal, características).
+2.  **CONCISIÓN EXTREMA**: Sé extremadamente CONCISA en todas tus respuestas y preguntas. Ve directo al punto y responde con el menor número de palabras posible. No des introducciones o cierres excesivamente largos.
+3.  **ACCIÓN RÁPIDA**: Una vez que tengas la información esencial, ofrece la recomendación o el siguiente paso, sin dar rodeos.
+4.  **TONO**: Mantén un tono amigable y usa emojis 🤩, pero la prioridad es la eficiencia y la brevedad.
 `;
 // ------------------------------------------
 
 
 exports.handler = async (event, context) => {
     
+    // 1. Manejo de Peticiones 'preflight' (CORS) y Verificaciones Iniciales
     if (event.httpMethod === "OPTIONS") {
         return { statusCode: 204, headers: CORS_HEADERS, body: '' };
     }
-
     if (event.httpMethod !== "POST") {
         return { statusCode: 405, headers: CORS_HEADERS, body: "Método no permitido. Usa POST." };
     }
@@ -38,62 +41,49 @@ exports.handler = async (event, context) => {
 
     try {
         const body = JSON.parse(event.body);
-        // ✅ CAMBIO: Ahora esperamos el historial completo
         const conversationHistory = body.conversation_history; 
 
         if (!conversationHistory || conversationHistory.length === 0) {
             return { statusCode: 400, headers: CORS_HEADERS, body: JSON.stringify({ error: "Falta el historial de la conversación." }) };
         }
 
-        // 3. Formatear el historial para la API de Gemini
+        // 2. Formatear el historial para la API de Gemini
         const contents = conversationHistory.map((message, index) => {
             let text = message.text;
-
-            // ✅ CRUCIAL: Adjuntamos las instrucciones de sistema al PRIMER mensaje 'user'
-            // Esto asegura que Gemini mantenga el rol a lo largo de la conversación.
-            if (index === 0 && message.role === 'user') {
-                text = SYSTEM_INSTRUCTIONS + "\n\n" + "El cliente dice: " + text;
-            }
-            // Si el primer mensaje fue 'model' (bienvenida), el primer 'user' será el segundo en el array.
-            // Para simplificar, adjuntamos SIEMPRE el SYSTEM_INSTRUCTIONS al primer mensaje de la conversación que no sea el de bienvenida.
-            // Para ser robustos, adjuntamos las instrucciones al primer mensaje *de usuario*.
-            if (index > 0 && message.role === 'user' && conversationHistory[index-1].role === 'model') {
-                 // Si es el primer mensaje del usuario después del saludo, adjuntamos.
-            }
             
-            // Si el primer mensaje fue de rol 'model' (el saludo inicial), el primer mensaje de 'user'
-            // es el que lleva el índice 1 o posterior.
+            // Determinar si es el primer mensaje del usuario para adjuntar las instrucciones
             const isFirstUserMessage = message.role === 'user' && !conversationHistory.slice(0, index).some(m => m.role === 'user');
 
             if (isFirstUserMessage) {
+                // Adjuntamos las instrucciones de sistema al primer mensaje de usuario
                 text = SYSTEM_INSTRUCTIONS + "\n\n" + "El cliente dice: " + text;
             } else if (message.role === 'user') {
+                // Los mensajes subsiguientes del usuario solo se etiquetan
                 text = "El cliente dice: " + text;
             }
-
 
             return {
                 role: message.role,
                 parts: [{ text: text }]
             };
-        }).filter(message => message.role !== 'model' || message.parts[0].text.trim() !== SYSTEM_INSTRUCTIONS.trim()); // Filtramos si incluimos el saludo inicial como 'model'.
+        });
 
-        // Filtramos el primer mensaje del bot de bienvenida si existe, ya que Gemini no lo necesita como contexto.
-        const filteredContents = contents.filter(c => c.role !== 'model' || c.parts[0].text !== '¡Hola! Soy Made 🛍️, tu personal shopper virtual. Dime, ¿qué producto estás buscando hoy? Así te puedo ayudar a encontrar la mejor opción.');
+        // Filtramos el mensaje de bienvenida del bot si existe, para que no interfiera con el rol
+        const filteredContents = contents.filter(c => c.role !== 'model' || !c.parts[0].text.includes('¡Hola! Soy Made'));
         
-        // 4. Construcción final de la solicitud
+        // 3. Construcción final de la solicitud
         const requestBody = {
             contents: filteredContents
         };
 
-        // 5. Llamada a la API de Gemini
+        // 4. Llamada a la API de Gemini
         const response = await fetch(`${API_ENDPOINT}?key=${API_KEY}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(requestBody),
         });
 
-        // 6. Manejo y retorno de la respuesta
+        // 5. Manejo y retorno de la respuesta
         const data = await response.json();
 
         if (!response.ok) {
